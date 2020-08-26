@@ -4,6 +4,8 @@
 if SERVER then
     util.AddNetworkString("PI::SendData")
 
+    --Because some physical entity data isn't sent to clients by default, I have to resort to doing this
+    --There's probably a less net-intensive way of handling this, but it works for now
     timer.Create("PI::PropData", 0.1, 0, function()
         for _, v in pairs(player.GetAll()) do
             local ent = v:GetEyeTrace().Entity
@@ -38,6 +40,7 @@ else
     net.Receive("PI::SendData", function()
         inertia = Vector(net.ReadFloat(), net.ReadFloat(), net.ReadFloat())
 
+        --Sometimes inertia is incorrect and displays a huge value if a prop is parented
         if inertia:Length() > 4294967295 then
             inertia = nil
         end

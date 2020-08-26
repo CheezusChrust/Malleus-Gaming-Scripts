@@ -3,7 +3,7 @@
 if SERVER then
     util.AddNetworkString("CrashCam::SendPing")
 
-    timer.Create("CrashCam::Ping", 0.25, 0, function()
+    timer.Create("CrashCam::Ping", 1, 0, function()
         net.Start("CrashCam::SendPing")
         net.Send(player.GetAll())
     end)
