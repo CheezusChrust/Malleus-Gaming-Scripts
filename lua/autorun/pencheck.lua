@@ -47,7 +47,7 @@ if SERVER then
             end
         end
 
-        --Check how many entities are penetrating eachother per-player, if this exceeds a set value, freeze all of their entities
+        --Check how many entities are penetrating eachother per-player, if this exceeds a set value, freeze the penetrating entities
         for _, ply in pairs(player.GetAll()) do
             if ply.penetrating then
                 for ent, _ in pairs(ply.penetrating) do
