@@ -14,6 +14,7 @@ if SERVER then
         end
     end
 
+    --Maintain a table of existing entities, instead of repeatedly calling ent.GetAll() every tick which is horribly inefficient
     hook.Add("OnEntityCreated", "PenCheck::EntCreated", function(ent)
         timer.Simple(0, function()
             if ent:IsValid() and ent:GetPhysicsObject():IsValid() and ent:GetPhysicsObject() ~= world then
@@ -30,11 +31,13 @@ if SERVER then
 
     hook.Add("Think", "PenCheck::Think", function()
         for ent, _ in pairs(allEnts) do
+            --No point in keeping parented entities in the table, discard them and continue
             if ent:GetParent():IsValid() then
                 allEnts[ent] = nil
                 continue
             end
 
+            --Check whether unfrozen entities are penetrating eachother, and if they are, maintain a table of them per-player
             if ent:IsValid() and ent:CPPIGetOwner() and ent:CPPIGetOwner():IsValid() and ent:GetPhysicsObject():IsValid() and ent:GetPhysicsObject():IsMoveable() and not ent:IsPlayerHolding() then
                 if not ent:CPPIGetOwner().penetrating then
                     ent:CPPIGetOwner().penetrating = {}
@@ -44,6 +47,7 @@ if SERVER then
             end
         end
 
+        --Check how many entities are penetrating eachother per-player, if this exceeds a set value, freeze all of their entities
         for _, ply in pairs(player.GetAll()) do
             if ply.penetrating then
                 for ent, _ in pairs(ply.penetrating) do
@@ -78,6 +82,7 @@ if SERVER then
                         ply.penetrating[ent] = nil
                     end
 
+                    --If a player's entities are frozen more than twice for penetration, lock them out of everything for 60 seconds and freeze all of their owned entities
                     if ply.freezeCount > 2 then
                         ply:FreezeAll()
                         ply.freezeLockout = true
@@ -98,6 +103,7 @@ if SERVER then
         end
     end)
 
+    --While players are locked out due to too many penetration events, they can't do any of the following:
     hook.Add("CanTool", "PenCheck::Lockout", function(ply)
         if ply.freezeLockout then return false end
     end)
