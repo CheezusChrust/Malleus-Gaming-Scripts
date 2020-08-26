@@ -2,6 +2,8 @@
 --Requires basicmessaging.lua
 
 if SERVER then
+    local allEnts = {}
+    local world = game.GetWorld():GetPhysicsObject()
     local plyMeta = FindMetaTable("Player")
 
     function plyMeta:FreezeAll()
@@ -12,9 +14,28 @@ if SERVER then
         end
     end
 
+    hook.Add("OnEntityCreated", "PenCheck::EntCreated", function(ent)
+        timer.Simple(0, function()
+            if ent:IsValid() and ent:GetPhysicsObject():IsValid() and ent:GetPhysicsObject() ~= world then
+                allEnts[ent] = true
+            end
+        end)
+    end)
+
+    hook.Add("EntityRemoved", "PenCheck::EntRemoved", function(ent)
+        if allEnts[ent] then
+            allEnts[ent] = nil
+        end
+    end)
+
     hook.Add("Think", "PenCheck::Think", function()
-        for _, ent in pairs(ents.GetAll()) do
-            if IsValid(ent) and ent:IsValid() and ent:CPPIGetOwner() and ent:CPPIGetOwner():IsValid() and ent:GetPhysicsObject():IsValid() and ent:GetPhysicsObject():IsMoveable() and not ent:IsPlayerHolding() then
+        for ent, _ in pairs(allEnts) do
+            if ent:GetParent():IsValid() then
+                allEnts[ent] = nil
+                continue
+            end
+
+            if ent:IsValid() and ent:CPPIGetOwner() and ent:CPPIGetOwner():IsValid() and ent:GetPhysicsObject():IsValid() and ent:GetPhysicsObject():IsMoveable() and not ent:IsPlayerHolding() then
                 if not ent:CPPIGetOwner().penetrating then
                     ent:CPPIGetOwner().penetrating = {}
                 end
@@ -48,6 +69,12 @@ if SERVER then
 
                     for ent, _ in pairs(ply.penetrating) do
                         ent:GetPhysicsObject():EnableMotion(false)
+
+                        if ent:GetClass() == "prop_vehicle_jeep" or ent:GetClass() == "prop_vehicle_jalopy" then
+                            ent:Remove()
+                            ply:SendMsg(Color(255, 127, 0), "[AntiLag] ", Color(255, 0, 0), "Cannot freeze " .. ent:GetClass() .. ", removing")
+                        end
+
                         ply.penetrating[ent] = nil
                     end
 
@@ -91,7 +118,7 @@ if SERVER then
         if ply.freezeLockout then return false end
     end)
 
-    hook.Add("OnPhysgunReload", "PenCheck::Lockout", function(ply)
+    hook.Add("OnPhysgunReload", "PenCheck::Lockout", function(_, ply)
         if ply.freezeLockout then return false end
     end)
 else
