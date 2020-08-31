@@ -3,10 +3,9 @@
 
 if SERVER then
     local allEnts = {}
-    local world = game.GetWorld():GetPhysicsObject()
     local plyMeta = FindMetaTable("Player")
 
-    function plyMeta:FreezeAll()
+    function plyMeta:FreezeProps()
         for _, ent in pairs(ents.GetAll()) do
             if ent:GetPhysicsObject():IsValid() and ent:CPPIGetOwner() and ent:CPPIGetOwner() == self then
                 ent:GetPhysicsObject():EnableMotion(false)
@@ -17,7 +16,9 @@ if SERVER then
     --Maintain a table of existing entities, instead of repeatedly calling ent.GetAll() every tick which is horribly inefficient
     hook.Add("OnEntityCreated", "PenCheck::EntCreated", function(ent)
         timer.Simple(0, function()
-            if ent:IsValid() and ent:GetPhysicsObject():IsValid() and ent:GetPhysicsObject() ~= world then
+            if not IsValid(ent:CPPIGetOwner()) then return end
+
+            if ent:IsValid() and ent:GetPhysicsObject():IsValid() and ent:GetPhysicsObject() ~= game.GetWorld():GetPhysicsObject() and ent:CPPIGetOwner() ~= Entity(0) then
                 allEnts[ent] = true
             end
         end)
@@ -31,14 +32,14 @@ if SERVER then
 
     hook.Add("Think", "PenCheck::Think", function()
         for ent, _ in pairs(allEnts) do
-            --No point in keeping parented entities in the table, discard them and continue
-            if ent:GetParent():IsValid() then
+            --Get rid of NULL entities, or entities we don't want
+            if not IsValid(ent) or not IsValid(ent:CPPIGetOwner()) or not ent:IsValid() or ent:GetParent():IsValid() then
                 allEnts[ent] = nil
                 continue
             end
 
             --Check whether unfrozen entities are penetrating eachother, and if they are, maintain a table of them per-player
-            if ent:IsValid() and ent:CPPIGetOwner():IsValid() and ent:GetPhysicsObject():IsValid() and ent:GetPhysicsObject():IsMoveable() then
+            if ent:GetPhysicsObject():IsValid() and ent:GetPhysicsObject():IsMoveable() then
                 if not ent:CPPIGetOwner().penetrating then
                     ent:CPPIGetOwner().penetrating = {}
                 end
@@ -55,7 +56,7 @@ if SERVER then
             local count = table.Count(ply.penetrating)
 
             if ply.freezeLockout and count > 0 then
-                ply:FreezeAll()
+                ply:FreezeProps()
                 continue
             end
 
@@ -84,7 +85,7 @@ if SERVER then
                 end
 
                 if ply.freezeCount > 2 then
-                    ply:FreezeAll()
+                    ply:FreezeProps()
                     ply.freezeLockout = true
                     ply:SetNWBool("PCLockout", true)
                     ply:SendMsg(Color(255, 127, 0), "[AntiLag] ", Color(255, 0, 0), "Stop doing that - all of your entities have been frozen and you have been temporarily restricted from further spawning...")
