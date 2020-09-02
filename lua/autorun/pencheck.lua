@@ -32,14 +32,16 @@ if SERVER then
 
     hook.Add("Think", "PenCheck::Think", function()
         for ent, _ in pairs(allEnts) do
-            --Get rid of NULL entities, or entities we don't want
-            if not IsValid(ent) or not IsValid(ent:CPPIGetOwner()) or not ent:IsValid() or ent:GetParent():IsValid() then
+            --Get rid of NULL entities
+            if not ent:IsValid() then
                 allEnts[ent] = nil
                 continue
             end
 
+            if ent:GetParent():IsValid() or not ent:GetPhysicsObject():IsMoveable() then continue end
+
             --Check whether unfrozen entities are penetrating eachother, and if they are, maintain a table of them per-player
-            if ent:GetPhysicsObject():IsValid() and ent:GetPhysicsObject():IsMoveable() then
+            if ent:GetPhysicsObject():IsValid() then
                 if not ent:CPPIGetOwner().penetrating then
                     ent:CPPIGetOwner().penetrating = {}
                 end
