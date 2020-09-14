@@ -41,7 +41,7 @@ if SERVER then
             if ent:GetParent():IsValid() or not ent:GetPhysicsObject():IsMoveable() then continue end
 
             --Check whether unfrozen entities are penetrating eachother, and if they are, maintain a table of them per-player
-            if ent:GetPhysicsObject():IsValid() then
+            if ent:CPPIGetOwner() and ent:GetPhysicsObject():IsValid() then
                 if not ent:CPPIGetOwner().penetrating then
                     ent:CPPIGetOwner().penetrating = {}
                 end
@@ -139,5 +139,3 @@ else
         if ply:GetNWBool("PCLockout") == true then return false end
     end)
 end
-
-print("PenCheck Loaded")
