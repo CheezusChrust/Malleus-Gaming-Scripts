@@ -34,5 +34,3 @@ timer.Create("autorestart", 60, 0, function()
         RunConsoleCommand("_restart")
     end
 end)
-
-print("AutoRestart Loaded")

@@ -45,6 +45,31 @@ hook.Add("OnEntityCreated", "FunnyProps::EntFreeze", function(ent)
 end)
 --]]
 
+--Disable being able to double tap R to unfreeze all owned ents
+--Couldn't find a hook specifically for this, had to do this jank
+do
+    local PLAYER = FindMetaTable("Player")
+
+    if PLAYER.OLD_PhysgunUnfreeze then
+        PLAYER.PhysgunUnfreeze = PLAYER.OLD_PhysgunUnfreeze
+    end
+    PLAYER.OLD_PhysgunUnfreeze = PLAYER.PhysgunUnfreeze
+
+    function PLAYER:PhysgunUnfreeze()
+        local ret = self:OLD_PhysgunUnfreeze()
+        self.LastPhysUnfreeze = -math.huge
+        return ret
+    end
+end
+
+--Prevent dupes from being pasted with "Unfreeze all entities after paste"
+hook.Add("AdvDupe_FinishPasting", "FunnyProps::PasteFreeze", function(data)
+    for _, ent in pairs(data[1].CreatedEntities) do
+        ent:GetPhysicsObject():EnableMotion(false)
+    end
+end)
+
+
 --Block cancerous models for non-admins
 hook.Add("PlayerSpawnProp", "FunnyProps::ModelBlock", function(ply, model)
     for _, m in pairs(models) do
@@ -66,5 +91,3 @@ hook.Add("PlayerSpawnSENT", "FunnyProps::SENTBlock", function(ply, ent)
         end
     end
 end)
-
-print("Funny Props Banned")
