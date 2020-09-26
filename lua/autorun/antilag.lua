@@ -1,6 +1,9 @@
 if SERVER then
     local preC = Color(100, 255, 100)
     local pre = "[AntiLag] "
+    CreateConVar("antilag_pencheck_lockoutduration", 60, {FCVAR_ARCHIVE}, "How long a player is restricted from interacting with or creating entities after too much entity penetration, in seconds", 1, 1800)
+    CreateConVar("antilag_ticktime_threshold", 500, {FCVAR_ARCHIVE}, "What 'score' is required in order to trigger the anti lag features - this is calculated by repeatedly adding the previous tick time and subtracting the expected tick time", 100, 10000)
+    CreateConVar("antilag_ticktime_cooldownrate", 3, {FCVAR_ARCHIVE}, "Rate at which the lag 'score' is lowered per tick", 1, 100)
 
     --Block people from using annoying/crashy models
     do
@@ -60,7 +63,7 @@ if SERVER then
 
     --Entity penetration checker to prevent massive lag due to entities being unfrozen inside of eachother
     do
-        local allEnts = {}
+        local trackedEnts = {}
         local plyMeta = FindMetaTable("Player")
 
         function plyMeta:FreezeProps()
@@ -74,32 +77,33 @@ if SERVER then
         --Maintain a table of existing entities, instead of repeatedly calling ent.GetAll() every tick which is horribly inefficient
         hook.Add("OnEntityCreated", "PenCheck::EntCreated", function(ent)
             timer.Simple(0, function()
-                if not IsValid(ent:CPPIGetOwner()) then return end
+                if not ent:CPPIGetOwner() then return end
 
                 if ent:IsValid() and ent:GetPhysicsObject():IsValid() and ent:GetPhysicsObject() ~= game.GetWorld():GetPhysicsObject() and ent:CPPIGetOwner() ~= Entity(0) then
-                    allEnts[ent] = true
+                    trackedEnts[ent] = true
                 end
             end)
         end)
 
         hook.Add("EntityRemoved", "PenCheck::EntRemoved", function(ent)
-            if allEnts[ent] then
-                allEnts[ent] = nil
+            if trackedEnts[ent] then
+                trackedEnts[ent] = nil
             end
         end)
 
         hook.Add("Think", "PenCheck::Think", function()
-            for ent, _ in pairs(allEnts) do
+            for ent, _ in pairs(trackedEnts) do
                 --Get rid of NULL entities
                 if not ent:IsValid() then
-                    allEnts[ent] = nil
+                    trackedEnts[ent] = nil
                     continue
                 end
 
+                --Skip frozen and parented entities
                 if ent:GetParent():IsValid() or not ent:GetPhysicsObject():IsMoveable() then continue end
 
                 --Check whether unfrozen entities are penetrating eachother, and if they are, maintain a table of them per-player
-                if IsValid(ent:CPPIGetOwner()) and ent:GetPhysicsObject():IsValid() then
+                if ent:CPPIGetOwner() and ent:CPPIGetOwner():IsValid() and ent:GetPhysicsObject():IsValid() then
                     if not ent:CPPIGetOwner().penetrating then
                         ent:CPPIGetOwner().penetrating = {}
                     end
@@ -151,7 +155,7 @@ if SERVER then
                         ply:SendMsg(preC, pre, Color(255, 255, 255), "Stop doing that - all of your entities have been frozen and you have been temporarily restricted from further spawning...")
                         BroadcastMsg(preC, pre, Color(255, 255, 255), ply:Nick() .. " has been temporarily restricted due to repeatedly creating penetrating physics objects")
 
-                        timer.Simple(60, function()
+                        timer.Simple(GetConVar("antilag_pencheck_lockoutduration"):GetInt(), function()
                             ply.freezeLockout = false
                             ply:SetNWBool("PCLockout", false)
                             ply.freezeCount = 0
@@ -186,8 +190,8 @@ if SERVER then
         local interval = engine.TickInterval()
         local intervalMs = math.Round(interval * 1000)
         local lastTick = SysTime()
-        local lag = 0
-        local bigLag = false
+        local lagScore = 0
+        local lagEvent = false
 
         local function freezeAll()
             for _, v in pairs(ents.GetAll()) do
@@ -218,35 +222,31 @@ if SERVER then
             table.Empty(collisionGroups)
         end
 
-        hook.Add("Tick", "LagDet::Tick", function()
+        hook.Add("Tick", "AntiLag::Tick", function()
             local tickTime = SysTime() - lastTick
             local tickTimeMs = math.Round(tickTime * 1000)
-            lag = lag + math.max(tickTimeMs, intervalMs)
+            lagScore = lagScore + math.max(tickTimeMs, intervalMs)
 
-            if tickTimeMs > 500 then
-                MsgC(Color(255, 0, 0), "Warning: last tick took " .. tickTimeMs .. "ms\n")
-            end
-
-            if lag > 500 and not bigLag then
+            if lagScore > GetConVar("antilag_ticktime_threshold"):GetInt() and not lagEvent then
                 BroadcastMsg(Color(100, 255, 100), "[AntiLag]", Color(255, 255, 255), " All props have been frozen and entity collisions have been temporarily disabled until lag subsides")
-                bigLag = true
+                lagEvent = true
                 freezeAll()
                 disableCollisions()
             end
 
-            if lag < 50 and bigLag then
+            if lagScore < 50 and lagEvent then
                 BroadcastMsg(Color(100, 255, 100), "[AntiLag]", Color(255, 255, 255), " Lag subsided, collisions restored")
-                bigLag = false
+                lagEvent = false
                 restoreCollisions()
             end
 
-            lag = math.Clamp(lag - intervalMs - 3, 0, 2500)
+            lagScore = math.Clamp(lagScore - intervalMs - GetConVar("antilag_ticktime_cooldownrate"):GetInt(), 0, 2500)
             lastTick = SysTime()
         end)
 
         --Prevent any new props and spawned dupes from having collisions during a lag event
         hook.Add("OnEntityCreated", "AntiLag::DisableCollisionsOnCreation", function(ent)
-            if bigLag then
+            if lagEvent then
                 timer.Simple(0, function()
                     if ent:IsValid() and ent:GetPhysicsObject():IsValid() then
                         collisionGroups[ent] = ent:GetCollisionGroup()
@@ -257,7 +257,7 @@ if SERVER then
         end)
 
         hook.Add("AdvDupe_FinishPasting", "AntiLag::PasteCollisions", function(data)
-            if bigLag then
+            if lagEvent then
                 for _, ent in pairs(data[1].CreatedEntities) do
                     if ent:IsValid() and ent:GetPhysicsObject():IsValid() then
                         collisionGroups[ent] = ent:GetCollisionGroup()
@@ -305,7 +305,7 @@ if SERVER then
         ENTITY.OLD_SetParent = ENTITY.SetParent
 
         function ENTITY:SetParent(parent, attachmentId)
-            if parent and string.find(self:GetModel(), "raceseat") and self:IsVehicle() and string.find(parent:GetModel(), "superthin") then return end
+            if parent and string.find(self:GetModel() or "", "raceseat") and self:IsVehicle() and string.find(parent:GetModel() or "", "superthin") then return end
             self:OLD_SetParent(parent, attachmentId)
         end
     end
