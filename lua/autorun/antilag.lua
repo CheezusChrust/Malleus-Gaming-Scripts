@@ -1,9 +1,12 @@
 if SERVER then
     local preC = Color(100, 255, 100)
     local pre = "[AntiLag] "
-    CreateConVar("antilag_pencheck_lockoutduration", 60, {FCVAR_ARCHIVE}, "How long a player is restricted from interacting with or creating entities after too much entity penetration, in seconds", 1, 1800)
-    CreateConVar("antilag_ticktime_threshold", 500, {FCVAR_ARCHIVE}, "What 'score' is required in order to trigger the anti lag features - this is calculated by repeatedly adding the previous tick time and subtracting the expected tick time", 100, 10000)
+    CreateConVar("antilag_pencheck_lockoutduration", 15, {FCVAR_ARCHIVE}, "How long a player is restricted from interacting with or creating entities after too much entity penetration, in seconds", 1, 1800)
+    CreateConVar("antilag_pencheck_enable", 1, {FCVAR_ARCHIVE}, "Enable penetration checking", 0, 1)
+    CreateConVar("antilag_pencheck_maxpenetrating", 3, {FCVAR_ARCHIVE}, "Maximum amount of props that can be penetrating eachother before freezing them", 2, 10)
+    CreateConVar("antilag_ticktime_threshold", 750, {FCVAR_ARCHIVE}, "What 'score' is required in order to trigger the anti lag features - this is calculated by repeatedly adding the previous tick time and subtracting the expected tick time", 100, 10000)
     CreateConVar("antilag_ticktime_cooldownrate", 3, {FCVAR_ARCHIVE}, "Rate at which the lag 'score' is lowered per tick", 1, 100)
+    CreateConVar("antilag_ticktime_enablecheck", 1, {FCVAR_ARCHIVE}, "Enable or disable freezing and nocolliding props based on time between ticks", 0, 1)
 
     --Block people from using annoying/crashy models
     do
@@ -64,9 +67,9 @@ if SERVER then
     --Entity penetration checker to prevent massive lag due to entities being unfrozen inside of eachother
     do
         local trackedEnts = {}
-        local plyMeta = FindMetaTable("Player")
+        local PLAYER = FindMetaTable("Player")
 
-        function plyMeta:FreezeProps()
+        function PLAYER:FreezeProps()
             for _, ent in pairs(ents.GetAll()) do
                 if ent:GetPhysicsObject():IsValid() and ent:CPPIGetOwner() and ent:CPPIGetOwner() == self then
                     ent:GetPhysicsObject():EnableMotion(false)
@@ -92,9 +95,10 @@ if SERVER then
         end)
 
         hook.Add("Think", "PenCheck::Think", function()
+            if not GetConVar("antilag_pencheck_enable"):GetBool() then return end
             for ent, _ in pairs(trackedEnts) do
-                --Get rid of NULL entities
-                if not ent:IsValid() then
+                --Get rid of NULL entities or bad physobjects
+                if not ent:IsValid() or not ent:GetPhysicsObject():IsValid() then
                     trackedEnts[ent] = nil
                     continue
                 end
@@ -124,7 +128,7 @@ if SERVER then
                     continue
                 end
 
-                if count > 2 then
+                if count > GetConVar("antilag_pencheck_maxpenetrating"):GetInt() then
                     if not ply.freezeCount then
                         ply.freezeCount = 0
                     end
@@ -156,6 +160,7 @@ if SERVER then
                         BroadcastMsg(preC, pre, Color(255, 255, 255), ply:Nick() .. " has been temporarily restricted due to repeatedly creating penetrating physics objects")
 
                         timer.Simple(GetConVar("antilag_pencheck_lockoutduration"):GetInt(), function()
+                            if not ply:IsValid() then return end
                             ply.freezeLockout = false
                             ply:SetNWBool("PCLockout", false)
                             ply.freezeCount = 0
@@ -223,6 +228,7 @@ if SERVER then
         end
 
         hook.Add("Tick", "AntiLag::Tick", function()
+            if not GetConVar("antilag_ticktime_enablecheck"):GetBool() then return end
             local tickTime = SysTime() - lastTick
             local tickTimeMs = math.Round(tickTime * 1000)
             lagScore = lagScore + math.max(tickTimeMs, intervalMs)
@@ -290,12 +296,20 @@ if SERVER then
     --Prevent dupes from being pasted with "Unfreeze all entities after paste"
     hook.Add("AdvDupe_FinishPasting", "AntiLag::PasteFreeze", function(data)
         for _, ent in pairs(data[1].CreatedEntities) do
-            ent:GetPhysicsObject():EnableMotion(false)
+            if ent:IsValid() and ent:GetPhysicsObject():IsValid() then
+                ent:GetPhysicsObject():EnableMotion(false)
+            end
         end
     end)
 
-    --Disable being able to parent race seats to superthin sprops plates - causes crashes
+    --Disable parenting on funky entities
     do
+        local parentBlacklist = {
+            ["prop_vehicle_jeep"] = true,
+            ["prop_vehicle_airboat"] = true,
+            ["prop_vehicle_jalopy"] = true
+        }
+
         local ENTITY = FindMetaTable("Entity")
 
         if ENTITY.OLD_SetParent then
@@ -306,6 +320,7 @@ if SERVER then
 
         function ENTITY:SetParent(parent, attachmentId)
             if parent and string.find(self:GetModel() or "", "raceseat") and self:IsVehicle() and string.find(parent:GetModel() or "", "superthin") then return end
+            if parent and parentBlacklist[self:GetClass()] then return end
             self:OLD_SetParent(parent, attachmentId)
         end
     end
