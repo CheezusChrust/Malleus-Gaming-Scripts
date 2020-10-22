@@ -1,24 +1,33 @@
 --More prop info when aiming at entities
 --Overrides the stock NADMod HUD
 
-if SERVER then
-    util.AddNetworkString("PI::SendData")
+--Regular vectors are heavily compressed, have to do this for accuracy
+local function setNWVectorPrecise(ent, key, value)
+    ent:SetNWFloat(key .. "_x", value[1])
+    ent:SetNWFloat(key .. "_y", value[2])
+    ent:SetNWFloat(key .. "_z", value[3])
+end
 
-    --Because some physical entity data isn't sent to clients by default, I have to resort to doing this
-    --There's probably a less net-intensive way of handling this, but it works for now
+local function getNWVectorPrecise(ent, key, fallback)
+    local x = ent:GetNWFloat(key .. "_x", fallback[1])
+    local y = ent:GetNWFloat(key .. "_y", fallback[2])
+    local z = ent:GetNWFloat(key .. "_z", fallback[3])
+
+    return Vector(x, y, z)
+end
+
+if SERVER then
+    hook.Remove("Think", "PI::PropData")
+
     timer.Create("PI::PropData", 0.1, 0, function()
-        for _, v in pairs(player.GetAll()) do
-            local ent = v:GetEyeTrace().Entity
+        for _, ply in pairs(player.GetAll()) do
+            local ent = ply:GetEyeTrace().Entity
             if not ent:IsValid() or not ent:GetPhysicsObject():IsValid() or not IsValid(ent:CPPIGetOwner()) then continue end
             local inertia = ent:GetPhysicsObject():GetInertia()
-            net.Start("PI::SendData")
-            net.WriteFloat(inertia.x)
-            net.WriteFloat(inertia.y)
-            net.WriteFloat(inertia.z)
-            net.WriteUInt(math.Round(ent:GetPhysicsObject():GetMass()), 16)
+            setNWVectorPrecise(ply, "PI::Inertia", inertia)
+            ply:SetNWInt("PI::Mass", ent:GetPhysicsObject():GetMass())
             local physprop = ent:GetPhysicsObject():GetMaterial()
-            net.WriteString(physprop[1] == "$" and "Unknown" or physprop)
-            net.Send(v)
+            ply:SetNWString("PI::PhysProp", physprop[1] == "$" and "Unknown" or physprop)
         end
     end)
 else
@@ -33,22 +42,6 @@ else
         return "[" .. math.Round(m[1], round) .. ", " .. math.Round(m[2], round) .. ", " .. math.Round(m[3], round) .. "]"
     end
 
-    local inertia
-    local mass
-    local physprop
-
-    net.Receive("PI::SendData", function()
-        inertia = Vector(net.ReadFloat(), net.ReadFloat(), net.ReadFloat())
-
-        --Sometimes inertia is incorrect and displays a huge value if a prop is parented
-        if inertia:Length() > 4294967295 then
-            inertia = nil
-        end
-
-        mass = net.ReadUInt(16)
-        physprop = net.ReadString()
-    end)
-
     local x, y = ScrW(), ScrH()
 
     timer.Simple(1, function()
@@ -57,6 +50,10 @@ else
 
     hook.Add("HUDPaint", "PI::PropInfo", function()
         surface.SetFont("ChatFont")
+        local inertia = getNWVectorPrecise(LocalPlayer(), "PI::Inertia", Vector())
+        inertia = inertia:Length() > 4294967295 and nil or inertia
+        local mass = math.Round(LocalPlayer():GetNWInt("PI::Mass"))
+        local physprop = LocalPlayer():GetNWString("PI::PhysProp")
         local xPos = tonumber(GetConVar("propinfo_x"):GetString()) or 0.01
         local yPos = tonumber(GetConVar("propinfo_y"):GetString()) or 0.01
         local mode = GetConVar("propinfo_mode"):GetInt()
@@ -70,7 +67,7 @@ else
         local classStr = "Class: " .. aimEntity:GetClass()
         local ownerStr = "Owner: " .. aimEntity:CPPIGetOwner():Nick()
         local angleStr = "Angle: " .. matrixToString(aimEntity:GetAngles(), 3)
-        local inertiaStr = "Inertia: " .. (inertia and matrixToString(inertia, 3) or "Unknown")
+        local inertiaStr = "Inertia: " .. (inertia and matrixToString(inertia, 2) or "Unknown")
         local w0 = select(1, surface.GetTextSize(ownerStr))
         local w1 = select(1, surface.GetTextSize(modelStr))
         local w2 = mode > 1 and select(1, surface.GetTextSize(inertiaStr)) or 0
