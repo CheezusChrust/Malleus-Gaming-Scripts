@@ -51,7 +51,7 @@ else
     hook.Add("HUDPaint", "PI::PropInfo", function()
         surface.SetFont("ChatFont")
         local inertia = getNWVectorPrecise(LocalPlayer(), "PI::Inertia", Vector())
-        inertia = inertia:Length() > 4294967295 and nil or inertia
+        inertia = inertia:Length() > 4294967295 and Vector() or inertia
         local mass = math.Round(LocalPlayer():GetNWInt("PI::Mass"))
         local physprop = LocalPlayer():GetNWString("PI::PhysProp")
         local xPos = tonumber(GetConVar("propinfo_x"):GetString()) or 0.01
@@ -67,7 +67,7 @@ else
         local classStr = "Class: " .. aimEntity:GetClass()
         local ownerStr = "Owner: " .. aimEntity:CPPIGetOwner():Nick()
         local angleStr = "Angle: " .. matrixToString(aimEntity:GetAngles(), 3)
-        local inertiaStr = "Inertia: " .. (inertia and matrixToString(inertia, 2) or "Unknown")
+        local inertiaStr = "Inertia: " .. (inertia ~= Vector() and matrixToString(inertia, 2) or "Unknown")
         local w0 = select(1, surface.GetTextSize(ownerStr))
         local w1 = select(1, surface.GetTextSize(modelStr))
         local w2 = mode > 1 and select(1, surface.GetTextSize(inertiaStr)) or 0
