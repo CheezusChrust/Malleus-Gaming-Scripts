@@ -27,7 +27,10 @@ local aids = {
 	"dot gg",
 	"dotgg",
 	"twitch%.tv",
-	"casedrop%.eu"
+	"casedrop%.eu",
+	"rustchance",
+	"rustypot",
+	"key-drop"
 }
 
 hook.Add("CheckPassword", "CancerRemover", function(_, _, _, _, name)
