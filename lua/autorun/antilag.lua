@@ -4,7 +4,7 @@ if SERVER then
     CreateConVar("antilag_pencheck_lockoutduration", 15, {FCVAR_ARCHIVE}, "How long a player is restricted from interacting with or creating entities after too much entity penetration, in seconds", 1, 1800)
     CreateConVar("antilag_pencheck_enable", 1, {FCVAR_ARCHIVE}, "Enable penetration checking", 0, 1)
     CreateConVar("antilag_pencheck_maxpenetrating", 3, {FCVAR_ARCHIVE}, "Maximum amount of props that can be penetrating eachother before freezing them", 2, 10)
-    CreateConVar("antilag_ticktime_threshold", 750, {FCVAR_ARCHIVE}, "What 'score' is required in order to trigger the anti lag features - this is calculated by repeatedly adding the previous tick time and subtracting the expected tick time", 100, 10000)
+    CreateConVar("antilag_ticktime_threshold", 500, {FCVAR_ARCHIVE}, "What 'score' is required in order to trigger the anti lag features - this is calculated by repeatedly adding the previous tick time and subtracting the expected tick time", 100, 10000)
     CreateConVar("antilag_ticktime_cooldownrate", 3, {FCVAR_ARCHIVE}, "Rate at which the lag 'score' is lowered per tick", 1, 100)
     CreateConVar("antilag_ticktime_enablecheck", 1, {FCVAR_ARCHIVE}, "Enable or disable freezing and nocolliding props based on time between ticks", 0, 1)
 
@@ -24,11 +24,11 @@ if SERVER then
             "models/props_phx/mk-82.mdl",
             "models/props_phx/oildrum001.mdl",
             "models/props_phx/torpedo.mdl",
-            "models/props_phx/amraam.mdl",
+            --"models/props_phx/amraam.mdl",
             "models/props_phx/facepunch_barrel.mdl",
             "models/props_phx/cannonball_solid.mdl",
             "models/props_phx/ball.mdl",
-            "models/props_phx/huge/",
+            --"models/props_phx/huge/",
             "models/props_combine/combine_citadel001.mdl",
             "models/Cranes/crane_frame.mdl",
             --"models/props_wasteland/medbridge_base01.mdl",
@@ -144,11 +144,6 @@ if SERVER then
 
                         ent:GetPhysicsObject():EnableMotion(false)
 
-                        if ent:GetClass() == "prop_vehicle_jeep" or ent:GetClass() == "prop_vehicle_jalopy" then
-                            ent:Remove()
-                            ply:SendMsg(preC, pre, Color(255, 255, 255), "Cannot freeze " .. ent:GetClass() .. ", removing")
-                        end
-
                         ply.penetrating[ent] = nil
                     end
 
@@ -182,12 +177,15 @@ if SERVER then
             if ply.freezeLockout then return false end
         end
 
-        hook.Add("CanTool", "PenCheck::Lockout", lockout)
-        hook.Add("PlayerSpawnProp", "PenCheck::Lockout", lockout)
-        hook.Add("PlayerSpawnSENT", "PenCheck::Lockout", lockout)
-        hook.Add("PlayerSpawnVehicle", "PenCheck::Lockout", lockout)
-        hook.Add("PhysgunPickup", "PenCheck::Lockout", lockout)
-        hook.Add("OnPhysgunReload", "PenCheck::Lockout", lockout)
+        --These should run after everything else is loaded to ensure they actually work properly
+        timer.Simple(5, function()
+            hook.Add("CanTool", "PenCheck::Lockout", lockout)
+            hook.Add("PlayerSpawnProp", "PenCheck::Lockout", lockout)
+            hook.Add("PlayerSpawnSENT", "PenCheck::Lockout", lockout)
+            hook.Add("PlayerSpawnVehicle", "PenCheck::Lockout", lockout)
+            hook.Add("PhysgunPickup", "PenCheck::Lockout", lockout)
+            hook.Add("OnPhysgunReload", "PenCheck::Lockout", lockout)
+        end)
     end
 
     --Check time between each tick, try and deal with lag if tick time "score" exceeds set value
@@ -320,13 +318,16 @@ if SERVER then
 
         function ENTITY:SetParent(parent, attachmentId)
             if parent and string.find(self:GetModel() or "", "raceseat") and self:IsVehicle() and string.find(parent:GetModel() or "", "superthin") then return end
-            if parent and parentBlacklist[self:GetClass()] then return end
+            if (parent and parentBlacklist[self:GetClass()]) or (parentBlacklist[self:GetClass()] and parentBlacklist[parent:GetClass()]) then return end
             self:OLD_SetParent(parent, attachmentId)
         end
     end
 else
     --Prevent clients from seeing their toolgun work clientside while restricted from using it
-    hook.Add("CanTool", "PenCheck::Lockout", function(ply)
-        if ply:GetNWBool("PCLockout") then return false end
+    --Delay to ensure this actually works
+    timer.Simple(5, function()
+        hook.Add("CanTool", "PenCheck::Lockout", function(ply)
+            if ply:GetNWBool("PCLockout") then return false end
+        end)
     end)
 end
