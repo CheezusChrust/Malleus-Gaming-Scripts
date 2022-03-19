@@ -17,6 +17,12 @@ if SERVER then
     end
 else
     net.Receive("BasicMessaging::SendMsg", function()
-        chat.AddText(unpack(net.ReadTable()))
+        local msg = net.ReadTable()
+        for k, v in pairs(msg) do
+            if type(v) == "table" and #v == 4 then --For some reason, color objects can be converted to tables during networking?
+                msg[k] = Color(v[1], v[2], v[3], v[4])
+            end
+        end
+        chat.AddText(unpack(msg))
     end)
 end
