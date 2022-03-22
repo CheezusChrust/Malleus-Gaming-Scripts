@@ -302,12 +302,6 @@ if SERVER then
 
     --Disable parenting on funky entities
     do
-        local parentBlacklist = {
-            ["prop_vehicle_jeep"] = true,
-            ["prop_vehicle_airboat"] = true,
-            ["prop_vehicle_jalopy"] = true
-        }
-
         local ENTITY = FindMetaTable("Entity")
 
         if ENTITY.OLD_SetParent then
@@ -318,7 +312,6 @@ if SERVER then
 
         function ENTITY:SetParent(parent, attachmentId)
             if parent and string.find(self:GetModel() or "", "raceseat") and self:IsVehicle() and string.find(parent:GetModel() or "", "superthin") then return end
-            if (parent and parentBlacklist[self:GetClass()]) or (parentBlacklist[self:GetClass()] and parentBlacklist[parent:GetClass()]) then return end
             self:OLD_SetParent(parent, attachmentId)
         end
     end
