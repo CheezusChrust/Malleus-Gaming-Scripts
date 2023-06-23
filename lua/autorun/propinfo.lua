@@ -1,118 +1,154 @@
 --More prop info when aiming at entities
 --Overrides the stock NADMod HUD
 
---Regular vectors are heavily compressed, have to do this for accuracy
-local function setNWVectorPrecise(ent, key, value)
-    ent:SetNWFloat(key .. "_x", value[1])
-    ent:SetNWFloat(key .. "_y", value[2])
-    ent:SetNWFloat(key .. "_z", value[3])
-end
-
-local function getNWVectorPrecise(ent, key, fallback)
-    local x = ent:GetNWFloat(key .. "_x", fallback[1])
-    local y = ent:GetNWFloat(key .. "_y", fallback[2])
-    local z = ent:GetNWFloat(key .. "_z", fallback[3])
-
-    return Vector(x, y, z)
-end
-
 if SERVER then
+    util.AddNetworkString("PI::PropData")
+
+    local function getDiff(old, new)
+        local diff = {}
+
+        for k, v in pairs(new) do
+            if old[k] ~= v then
+                diff[k] = v
+            end
+        end
+
+        return diff
+    end
+
+    local playerEntData = {}
+
     timer.Create("PI::PropData", 0.1, 0, function()
-        for _, ply in pairs(player.GetAll()) do
-            local ent = ply:GetEyeTrace().Entity
-            if not ent:IsValid() or not ent:GetPhysicsObject():IsValid() or not IsValid(ent:CPPIGetOwner()) then continue end
-            local inertia = ent:GetPhysicsObject():GetInertia()
-            setNWVectorPrecise(ply, "PI::Inertia", inertia)
-            ply:SetNWInt("PI::Mass", ent:GetPhysicsObject():GetMass())
-            local physprop = ent:GetPhysicsObject():GetMaterial()
-            ply:SetNWString("PI::PhysProp", physprop[1] == "$" and "Unknown" or physprop)
+        for _, ply in ipairs(player.GetAll()) do
+            if not playerEntData[ply] then
+                playerEntData[ply] = {}
+            end
+
+            local aimEntity = ply:GetEyeTrace().Entity
+            local physobj = IsValid(aimEntity) and aimEntity:GetPhysicsObject()
+
+            if IsValid(aimEntity) and IsValid(physobj) then
+                local curData = {
+                    inertia = physobj:GetInertia(),
+                    physprop = physobj:GetMaterial(),
+                    mass = physobj:GetMass()
+                }
+
+                if table.Count(getDiff(playerEntData[ply], curData)) > 0 then
+                    playerEntData[ply] = curData
+
+                    net.Start("PI::PropData", true)
+                    net.WriteFloat(curData.inertia.x)
+                    net.WriteFloat(curData.inertia.y)
+                    net.WriteFloat(curData.inertia.z)
+                    net.WriteString(curData.physprop)
+                    net.WriteFloat(curData.mass)
+                    net.Send(ply)
+                end
+            end
         end
     end)
 else
-    CreateClientConVar("propinfo_mode", 2, true, false, "Display mode for PropInfo - 0 is off, 1 is basic info, 2 is full info", 0, 2)
-    CreateClientConVar("propinfo_justify", 1, true, false, "0 - Justify left, 1 - Justify right", 0, 1)
-    CreateClientConVar("propinfo_x", 0.99, true, false, "A number between 0 and 1, with 0 being the left of your screen and 1 being the right", 0, 1)
-    CreateClientConVar("propinfo_y", 0.4, true, false, "A number between 0 and 1, with 0 being the top of your screen and 1 being the bottom", 0, 1)
+    local function matrixToString(m, decimals)
+        decimals = decimals or 10
 
-    local function matrixToString(m, round)
-        round = round or 10
-
-        return "[" .. math.Round(m[1], round) .. ", " .. math.Round(m[2], round) .. ", " .. math.Round(m[3], round) .. "]"
+        return "[" .. math.Round(m[1], decimals) .. ", " .. math.Round(m[2], decimals) .. ", " .. math.Round(m[3], decimals) .. "]"
     end
 
-    local x, y = ScrW(), ScrH()
-
     timer.Simple(1, function()
-        hook.Remove("HUDPaint", "NADMOD.HUDPaint") --Sorry NADmod!
+        hook.Remove("HUDPaint", "NADMOD.HUDPaint")
     end)
 
-    local ownedByWorld = {
+    local propData = {
+        inertia = Vector(),
+        physprop = "Unknown",
+        mass = 0
+    }
+
+    net.Receive("PI::PropData", function()
+        local inertia = Vector(net.ReadFloat(), net.ReadFloat(), net.ReadFloat())
+        local physprop = net.ReadString()
+        local mass = net.ReadFloat()
+
+        propData.inertia = inertia
+        propData.physprop = physprop
+        propData.mass = mass
+    end)
+
+    local classesOwnedByWorld = {
         "prop_door",
         "prop_dynamic",
         "func_",
         "C_BaseEntity"
     }
 
-    local function getEntityOwner(E)
-        if not E:IsValid() then return end
-        if not E:CPPIGetOwner() then
-            for _, v in pairs(ownedByWorld) do
-                if string.find(E:GetClass(), v) then return "World" end
+    local function getOwnerName(ent)
+        if not IsValid(ent) then return end
+
+        if NADMOD and NADMOD.PropNames[ent:EntIndex()] then return NADMOD.PropNames[ent:EntIndex()] end
+
+        local owner = CPPI and ent:CPPIGetOwner()
+
+        if not owner then
+            for _, v in ipairs(classesOwnedByWorld) do
+                if string.find(ent:GetClass(), v) then return "World" end
             end
-            return "Unknown"
+
+            return "N/A"
         end
-        return E:CPPIGetOwner():Nick()
+
+        return owner:Nick()
     end
 
     hook.Add("HUDPaint", "PI::PropInfo", function()
-        local aimEntity = LocalPlayer():GetEyeTrace().Entity
-        if not aimEntity:IsValid() then return end
+        local scrW, scrH = ScrW(), ScrH()
+        local ply = LocalPlayer()
+
+        local aimEntity = ply:GetEyeTrace().Entity
+        if not IsValid(aimEntity) then return end
         if aimEntity:GetClass() == "player" then return end
-        local xPos = tonumber(GetConVar("propinfo_x"):GetString()) or 0.01
-        local yPos = tonumber(GetConVar("propinfo_y"):GetString()) or 0.01
-        local mode = GetConVar("propinfo_mode"):GetInt()
-        local mode2 = mode - (getEntityOwner(aimEntity) == "World" and 1 or 0)
-        local justify = GetConVar("propinfo_justify"):GetInt()
 
-        if mode < 1 then return end
+        local xPos = 0.99
+        local yPos = 0.4
 
-        local inertia = getNWVectorPrecise(LocalPlayer(), "PI::Inertia", Vector())
-        inertia = inertia:Length() > 4294967295 and Vector() or inertia
-        local mass = math.Round(LocalPlayer():GetNWInt("PI::Mass"))
-        local physprop = LocalPlayer():GetNWString("PI::PhysProp")
+        local inertia = propData.inertia or Vector()
+        if inertia:Length() > 4294967295 or inertia == Vector() then
+            inertia = "Unknown"
+        else
+            inertia = matrixToString(inertia, 2)
+        end
 
-        local split = string.Split(aimEntity:GetModel(), "/")
-        local modelStr = split[#split] .. " [" .. aimEntity:EntIndex() .. "]"
-        local classStr = "Class: " .. aimEntity:GetClass()
-        local ownerStr = "Owner: " .. getEntityOwner(aimEntity)
-        local angleStr = "Angle: " .. matrixToString(aimEntity:GetAngles(), 3)
-        local inertiaStr = "Inertia: " .. (inertia ~= Vector() and matrixToString(inertia, 2) or "Unknown")
-        local physpropStr = "Physprop: " .. (physprop and physprop or "Unknown")
+        local owner = getOwnerName(aimEntity)
+        local model = aimEntity:GetModel():match("/?([^/]+)$") .. " [" .. aimEntity:EntIndex() .. "]"
+        if model[1] == "*" then
+            model = "N/A"
+        end
+
+        local class = aimEntity:GetClass()
+        local mass = math.Round(propData.mass, 2) or 0
+        local physprop = propData.physprop or "Unknown"
+        if physprop[1] == "$" then
+            physprop = "Unknown"
+        end
+
+        local angle = matrixToString(aimEntity:GetAngles(), 3)
+
+        local text = "Owner: " .. owner .. "\n" ..
+                    "Model: " .. model .. "\n" ..
+                    "Class: " .. class
+
+        if owner ~= "World" then
+            text = text .. "\nMass: " .. mass .. "\n" ..
+                        "Physprop: " .. physprop .. "\n" ..
+                        "Inertia: " .. inertia .. "\n" ..
+                        "Angle: " .. angle
+        end
 
         surface.SetFont("ChatFont")
-        local w0 = select(1, surface.GetTextSize(ownerStr))
-        local w1 = select(1, surface.GetTextSize(modelStr))
-        local w2 = mode2 > 1 and select(1, surface.GetTextSize(inertiaStr)) or 0
-        local w3 = select(1, surface.GetTextSize(classStr))
-        local w4 = mode2 > 1 and select(1, surface.GetTextSize(angleStr)) or 0
-        local w5 = mode2 > 1 and select(1, surface.GetTextSize(physpropStr)) or 0
-        local width = math.max(w0 + 8, w1 + 8, w2 + 8, w3 + 8, w4 + 8, w5 + 8)
-
-        if justify < 1 then
-            draw.RoundedBox(5, x * xPos, y * yPos, width, 62 + (mode2 - 1) * 80, Color(0, 0, 0, 127))
-        else
-            draw.RoundedBox(5, (x * xPos) - width, y * yPos, width, 62 + (mode2 - 1) * 80, Color(0, 0, 0, 127))
-        end
-
-        draw.SimpleText(ownerStr, "ChatFont", x * (xPos + 0.002 - justify * 0.004), y * (yPos + 0.002), Color(255, 255, 255), justify * 2, 0)
-        draw.SimpleText(modelStr, "ChatFont", x * (xPos + 0.002 - justify * 0.004), y * (yPos + 0.002) + 20, Color(255, 255, 255), justify * 2, 0)
-        draw.SimpleText(classStr, "ChatFont", x * (xPos + 0.002 - justify * 0.004), y * (yPos + 0.002) + 40, Color(255, 255, 255), justify * 2, 0)
-
-        if mode2 > 1 then
-            draw.SimpleText(angleStr, "ChatFont", x * (xPos + 0.002 - justify * 0.004), y * (yPos + 0.002) + 60, Color(255, 255, 255), justify * 2, 0)
-            draw.SimpleText(inertiaStr, "ChatFont", x * (xPos + 0.002 - justify * 0.004), y * (yPos + 0.002) + 80, Color(255, 255, 255), justify * 2, 0)
-            draw.SimpleText("Mass: " .. (mass and (mass .. "kg") or "Unknown"), "ChatFont", x * (xPos + 0.002 - justify * 0.004), y * (yPos + 0.002) + 100, Color(255, 255, 255), justify * 2, 0)
-            draw.SimpleText(physpropStr, "ChatFont", x * (xPos + 0.002 - justify * 0.004), y * (yPos + 0.002) + 120, Color(255, 255, 255), justify * 2, 0)
-        end
+        local textWidth, textHeight = surface.GetTextSize(text)
+        local textWidth = textWidth + 8
+        local textHeight = textHeight + 8
+        draw.RoundedBox(5, scrW * xPos - textWidth + 4, scrH * yPos - 4, textWidth, textHeight, Color(0, 0, 0, 127))
+        draw.DrawText(text, "ChatFont", scrW * xPos, scrH * yPos, Color(255, 255, 255), 2)
     end)
 end

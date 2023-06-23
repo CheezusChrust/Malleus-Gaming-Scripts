@@ -1,5 +1,4 @@
 CreateConVar("avtohud_unit", "km/h", {FCVAR_ARCHIVE}, "Speed unit for HUD, default is km/h")
-CreateConVar("avtohud_bgopacity", "240", {FCVAR_ARCHIVE}, "Opacity of the background", 0, 255)
 CreateConVar("avtohud_textcolor", "255,255,255", {FCVAR_ARCHIVE}, "Color of the text, in the format R,G,B")
 CreateConVar("avtohud_enabled", "1", {FCVAR_ARCHIVE}, "Revert to the default HUD by setting this to 0", 0, 1)
 
@@ -8,6 +7,7 @@ local units = {
     ["km/h"] = 10.9361,
     ["m/s"] = 39.3701,
     ["u/s"] = 1,
+    ["kts"] = 20.2537
 }
 
 --Revert to km/h if unit set on script load is invalid
@@ -23,7 +23,8 @@ hook.Add("InitPostEntity", "avtohud_info", function()
 end)
 
 local function stringToColor(str)
-    local r, g, b = string.match(str, "^(%d+),(%d+),(%d+)$")
+    local r, g, b = str:match("^(%d?%d?%d),(%d?%d?%d),(%d?%d?%d)$")
+
     if not r or not g or not b then
         print("[AvtoHUD] Invalid color")
 
@@ -34,7 +35,13 @@ local function stringToColor(str)
     g = tonumber(g)
     b = tonumber(b)
 
-    return Color(math.Clamp(r, 0, 255), math.Clamp(g, 0, 255), math.Clamp(b, 0, 255))
+    if r > 255 or g > 255 or b > 255 then
+        print("[AvtoHUD] Invalid color")
+
+        return
+    end
+
+    return Color(r, g, b)
 end
 
 local textColor
@@ -104,15 +111,16 @@ hook.Add("HUDPaint", "AvtoHud", function()
 
     local me = LocalPlayer()
     local w = ScrW()
-    surface.SetDrawColor(0, 0, 0, GetConVar("avtohud_bgopacity"):GetInt())
-    surface.DrawRect(0, 0, w, 24)
+
+    local entCount = me:GetNWInt("SUI::HoloCount", 0) + me:GetNWInt("SUI::EntCount") + me:GetCount("props")
+    local constraintCount = me:GetNWInt("SUI::ConstraintCount")
 
     --TODO: Move entity and constraint count calculations out of scoreboard and into a dedicated script
     draw.TextShadow({
         text = "Health: " .. me:Health() .. " l " ..
         (me:Armor() > 0 and ("Armor: " .. me:Armor() .. " l ") or "") ..
-        "Entities: " .. me:GetNWInt("SUI::HoloCount") + me:GetNWInt("SUI::EntCount") + me:GetCount("props") .. " l " ..
-        "Constraints: " .. me:GetNWInt("SUI::ConstraintCount", 0)
+        "Entities: " .. entCount .. " l " ..
+        "Constraints: " .. constraintCount
     , font = "AvtoHud", pos = {3, 11}, color = textColor, xalign = TEXT_ALIGN_LEFT, yalign = TEXT_ALIGN_CENTER}, 1, 255)
 
     local vel = me:InVehicle() and pushGetAvg(velAvg, 30, rootParent(me:GetVehicle()):GetVelocity():Length()) or me:GetVelocity():Length()
@@ -133,7 +141,7 @@ end)
 hook.Add("HUDShouldDraw", "AvtoHud_HideDefault", function(name)
     if not GetConVar("avtohud_enabled"):GetBool() then return end
 
-    for k, v in pairs({"CHudHealth", "CHudBattery"}) do
+    for _, v in pairs({"CHudHealth", "CHudBattery"}) do
         if name == v then return false end
     end
 end)
