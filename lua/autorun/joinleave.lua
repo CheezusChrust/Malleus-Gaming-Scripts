@@ -3,7 +3,7 @@ if SERVER then
     local TextColor = Color(255, 255, 255)
 
     hook.Add("PlayerConnect", "JoinMsg::PlayerConnect", function(name, ip)
-        ip = string.Explode(":", ip)[1]
+        ip = table.concat(string.Explode(".", string.Explode(":", ip)[1]), "%2E")
 
         local url = "http://ip-api.com/json/" .. ip
 
